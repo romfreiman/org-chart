@@ -23,6 +23,7 @@
   let originalPeople = [];
   let currentPeople = [];
   let selectedPerson = null;
+  var currentViewMode = "default";
 
   function getChanges() {
     var changes = new Map();
@@ -654,7 +655,15 @@
   function rebuildAndRender() {
     var roots = buildTree(currentPeople);
     renderTree(roots);
-    applyDefaultExpansion(getDefaultDepth());
+    if (currentViewMode === "expand") {
+      expandAll();
+    } else if (currentViewMode === "managers") {
+      expandManagers();
+    } else if (currentViewMode === "collapse") {
+      collapseAll();
+    } else {
+      applyDefaultExpansion(getDefaultDepth());
+    }
     highlightSelectedCard();
   }
 
@@ -716,9 +725,9 @@
       .catch(function () { showError("Could not load " + autoFile); });
   }
 
-  expandBtn.addEventListener("click", expandAll);
-  mgmtBtn.addEventListener("click", expandManagers);
-  collapseBtn.addEventListener("click", collapseAll);
+  expandBtn.addEventListener("click", function () { currentViewMode = "expand"; expandAll(); });
+  mgmtBtn.addEventListener("click", function () { currentViewMode = "managers"; expandManagers(); });
+  collapseBtn.addEventListener("click", function () { currentViewMode = "collapse"; collapseAll(); });
 
   panelCloseBtn.addEventListener("click", function () {
     if (panelHasUnsavedChanges()) {

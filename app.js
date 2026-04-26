@@ -639,10 +639,11 @@
     } else if (result.error === "no_data") {
       showError("No valid data found in CSV");
     } else {
-      originalPeople = result.people.map(function (p) {
+      var fullPeople = addMissingManagers(result.people);
+      originalPeople = fullPeople.map(function (p) {
         return { name: p.name, title: p.title, manager: p.manager };
       });
-      currentPeople = result.people.map(function (p) {
+      currentPeople = fullPeople.map(function (p) {
         return { name: p.name, title: p.title, manager: p.manager };
       });
       selectedPerson = null;
@@ -655,6 +656,19 @@
     renderTree(roots);
     applyDefaultExpansion(getDefaultDepth());
     highlightSelectedCard();
+  }
+
+  function addMissingManagers(people) {
+    var names = new Set(people.map(function (p) { return p.name; }));
+    var toAdd = [];
+    for (var i = 0; i < people.length; i++) {
+      var mgr = people[i].manager;
+      if (mgr && !names.has(mgr)) {
+        names.add(mgr);
+        toAdd.push({ name: mgr, title: "", manager: "" });
+      }
+    }
+    return people.concat(toAdd);
   }
 
   function csvEscape(value) {

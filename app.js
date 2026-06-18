@@ -236,6 +236,16 @@
 
   var rectW = 170, rectH = 40;
 
+  function clonePerson(p) {
+    var copy = { name: p.name, title: p.title, manager: p.manager };
+    if (p._removed) copy._removed = true;
+    return copy;
+  }
+
+  function confirmDiscard(msg) {
+    return !panelHasUnsavedChanges() || confirm(msg || "You have unsaved changes. Discard them?");
+  }
+
   // ── Change Tracking ──
 
   function getChanges() {
@@ -282,17 +292,41 @@
   }
 
   function hasChanges() {
-    return getChanges().size > 0;
+    var origMap = new Map(originalPeople.map(function (p) { return [p.name, p]; }));
+    for (var i = 0; i < currentPeople.length; i++) {
+      var curr = currentPeople[i];
+      if (curr._removed) return true;
+      var orig = origMap.get(curr.name);
+      if (!orig) return true;
+      if (curr.manager !== orig.manager || curr.title !== orig.title) return true;
+    }
+    return false;
+  }
+
+  function buildChildrenIndex() {
+    var idx = new Map();
+    for (var i = 0; i < currentPeople.length; i++) {
+      var mgr = currentPeople[i].manager;
+      if (mgr) {
+        var list = idx.get(mgr);
+        if (!list) { list = []; idx.set(mgr, list); }
+        list.push(currentPeople[i].name);
+      }
+    }
+    return idx;
   }
 
   function getSubtreeNames(name) {
-    var names = [];
-    var directReports = currentPeople.filter(function (p) { return p.manager === name; });
-    for (var i = 0; i < directReports.length; i++) {
-      names.push(directReports[i].name);
-      names = names.concat(getSubtreeNames(directReports[i].name));
+    var idx = buildChildrenIndex();
+    var result = [];
+    var stack = idx.get(name) ? idx.get(name).slice() : [];
+    while (stack.length > 0) {
+      var n = stack.pop();
+      result.push(n);
+      var kids = idx.get(n);
+      if (kids) { for (var i = 0; i < kids.length; i++) stack.push(kids[i]); }
     }
-    return names;
+    return result;
   }
 
   function getAncestorChain(name) {
@@ -328,8 +362,9 @@
     panelName.textContent = person.name;
     panelTitle.value = person.title;
 
-    var excluded = getSubtreeNames(name);
-    excluded.push(name);
+    var subtree = getSubtreeNames(name);
+    var excluded = new Set(subtree);
+    excluded.add(name);
 
     panelManager.innerHTML = "";
 
@@ -339,7 +374,7 @@
     panelManager.appendChild(noMgrOption);
 
     var managers = currentPeople
-      .filter(function (p) { return excluded.indexOf(p.name) === -1; })
+      .filter(function (p) { return !excluded.has(p.name); })
       .filter(function (p) { return currentPeople.some(function (r) { return r.manager === p.name; }); })
       .sort(function (a, b) {
         var da = getOrgDistance(name, a.name);
@@ -403,15 +438,14 @@
     return panelTitle.value !== person.title || panelManager.value !== person.manager;
   }
 
-  function updateToolbarButtons() {
-    var changed = hasChanges();
+  function updateToolbarButtons(changed) {
     saveCsvBtn.hidden = !changed;
     resetBtn.hidden = !changed;
     planBtn.hidden = originalPeople.length === 0;
   }
 
-  function updateLegend() {
-    legendEl.hidden = !hasChanges();
+  function updateLegend(changed) {
+    legendEl.hidden = !changed;
   }
 
   // ── CSV Parsing ──
@@ -524,14 +558,6 @@
 
   function isOpenRole(name) {
     return name.toLowerCase().includes("backfill") || /\d/.test(name);
-  }
-
-  function countOpenRoles(node) {
-    var count = isOpenRole(node.name) ? 1 : 0;
-    for (var i = 0; i < node.children.length; i++) {
-      count += countOpenRoles(node.children[i]);
-    }
-    return count;
   }
 
   function computeOrgStats(roots) {
@@ -659,10 +685,10 @@
 
   // ── D3 Rendering ──
 
-  function updateChart(source) {
+  function updateChart(source, changes) {
     if (!d3Root) return;
 
-    var changes = getChanges();
+    if (!changes) changes = getChanges();
     var treeLayout = d3.tree().nodeSize([48, 240]);
     treeLayout(d3Root);
 
@@ -833,11 +859,7 @@
       .on("mouseenter", function (e, d) {
         if (!d.data._isManager) return;
         var s = computeOrgStats([d.data]);
-        var myDirectOpen = 0;
-        var ch = d.data.children || [];
-        for (var i = 0; i < ch.length; i++) {
-          if (isOpenRole(ch[i].name)) myDirectOpen++;
-        }
+        var myDirectOpen = d.data._directOpen || 0;
         tooltipEl.textContent = "";
         var nameDiv = document.createElement("div");
         nameDiv.className = "tt-name";
@@ -960,13 +982,7 @@
     // Open roles badges
     nodeUpdate.select(".node-open-badge-rect")
       .attr("width", function (d) {
-        if (!d.data._isManager) return 0;
-        var directOpen = 0;
-        var ch = d.data.children || [];
-        for (var i = 0; i < ch.length; i++) {
-          if (isOpenRole(ch[i].name)) directOpen++;
-        }
-        return directOpen > 0 ? 48 : 0;
+        return (d.data._isManager && d.data._directOpen > 0) ? 48 : 0;
       })
       .attr("fill", "rgba(240, 160, 60, 0.15)")
       .attr("stroke", "#f0a03c")
@@ -974,13 +990,8 @@
 
     nodeUpdate.select(".node-open-badge-text")
       .text(function (d) {
-        if (!d.data._isManager) return "";
-        var directOpen = 0;
-        var ch = d.data.children || [];
-        for (var i = 0; i < ch.length; i++) {
-          if (isOpenRole(ch[i].name)) directOpen++;
-        }
-        return directOpen > 0 ? directOpen + " open" : "";
+        if (!d.data._isManager || !d.data._directOpen) return "";
+        return d.data._directOpen + " open";
       })
       .attr("fill", "#f0a03c");
 
@@ -1025,41 +1036,38 @@
 
   function handleNodeClick(d) {
     if (selectedPerson === d.data.name) {
-      if (panelHasUnsavedChanges()) {
-        if (!confirm("You have unsaved changes. Discard them?")) return;
-      }
+      if (!confirmDiscard()) return;
       closePanel();
       return;
     }
-    if (selectedPerson && panelHasUnsavedChanges()) {
-      if (!confirm("You have unsaved changes. Discard them?")) return;
-    }
+    if (selectedPerson && !confirmDiscard()) return;
     openPanel(d.data.name);
   }
 
   // ── Toggle / Expand / Collapse (D3 style) ──
 
+  function collapseNode(d) {
+    d._children = d._allChildren || d.children;
+    d.children = null;
+    d._allChildren = null;
+    d._expandMode = null;
+  }
+
+  function expandNode(d) {
+    d.children = d._allChildren || d._children;
+    d._children = null;
+    d._allChildren = null;
+  }
+
   function toggleNodeOneLevel(d) {
     if (d.children) {
-      d._children = d._allChildren || d.children;
-      d.children = null;
-      d._allChildren = null;
-      d._expandMode = null;
+      collapseNode(d);
     } else if (d._children || d._allChildren) {
-      var all = d._allChildren || d._children;
-      d.children = all;
-      d._children = null;
-      d._allChildren = null;
+      expandNode(d);
       d._expandMode = "all";
-      // Collapse grandchildren so only one level opens
       for (var i = 0; i < d.children.length; i++) {
         var child = d.children[i];
-        if (child.children && child.children.length > 0) {
-          child._children = child._allChildren || child.children;
-          child.children = null;
-          child._allChildren = null;
-          child._expandMode = null;
-        }
+        if (child.children && child.children.length > 0) collapseNode(child);
       }
     }
   }
@@ -1072,29 +1080,15 @@
 
   function toggleNodeAll(d) {
     if (d.children) {
-      // Collapse
-      d._children = d._allChildren || d.children;
-      d.children = null;
-      d._allChildren = null;
-      d._expandMode = null;
+      collapseNode(d);
     } else if (d._children || d._allChildren) {
-      // Expand all
-      d.children = d._allChildren || d._children;
-      d._children = null;
-      d._allChildren = null;
+      expandNode(d);
       d._expandMode = "all";
     }
   }
 
   function toggleNodeManagers(d) {
-    if (d.children) {
-      // Collapse
-      d._children = d._allChildren || d.children;
-      d.children = null;
-      d._allChildren = null;
-      d._expandMode = null;
-      return;
-    }
+    if (d.children) { collapseNode(d); return; }
 
     var all = d._allChildren || d._children;
     if (!all) return;
@@ -1107,7 +1101,6 @@
     d._children = null;
     d._expandMode = "managers";
 
-    // Recursively expand managers in children
     for (var i = 0; i < d.children.length; i++) {
       var child = d.children[i];
       if (child._children || child._allChildren) {
@@ -1133,12 +1126,7 @@
   function expandAll() {
     if (!d3Root) return;
     walkAll(d3Root, function (d) {
-      if (d._children || d._allChildren) {
-        d.children = d._allChildren || d._children;
-        d._children = null;
-        d._allChildren = null;
-        d._expandMode = "all";
-      }
+      if (d._children || d._allChildren) { expandNode(d); d._expandMode = "all"; }
     });
     updateChart(d3Root);
     setTimeout(fitToView, 450);
@@ -1147,12 +1135,7 @@
   function collapseAll() {
     if (!d3Root) return;
     walkAll(d3Root, function (d) {
-      if (d.depth > 0 && (d.children || d._allChildren)) {
-        d._children = d._allChildren || d.children;
-        d.children = null;
-        d._allChildren = null;
-        d._expandMode = null;
-      }
+      if (d.depth > 0 && (d.children || d._allChildren)) collapseNode(d);
     });
     updateChart(d3Root);
     setTimeout(fitToView, 450);
@@ -1160,34 +1143,22 @@
 
   function expandManagers() {
     if (!d3Root) return;
-    // First collapse all
     walkAll(d3Root, function (d) {
-      if (d.depth > 0 && (d.children || d._allChildren)) {
-        d._children = d._allChildren || d.children;
-        d.children = null;
-        d._allChildren = null;
-      }
+      if (d.depth > 0 && (d.children || d._allChildren)) collapseNode(d);
     });
 
-    // Then expand only managers
     function expandMgrs(d) {
       var all = d._children;
       if (!all) return;
-
       var managerChildren = all.filter(function (c) { return isManagerNode(c); });
       if (managerChildren.length === 0) return;
-
       d._allChildren = all;
       d.children = managerChildren;
       d._children = null;
       d._expandMode = "managers";
-
-      for (var i = 0; i < d.children.length; i++) {
-        expandMgrs(d.children[i]);
-      }
+      for (var i = 0; i < d.children.length; i++) expandMgrs(d.children[i]);
     }
 
-    // Expand root's children (or virtual root's children)
     if (d3Root.children) {
       d3Root.children.forEach(function (c) { expandMgrs(c); });
     } else if (d3Root._children) {
@@ -1204,18 +1175,9 @@
     if (!d3Root) return;
     walkAll(d3Root, function (d) {
       if (d.depth < maxDepth) {
-        if (d._children || d._allChildren) {
-          d.children = d._allChildren || d._children;
-          d._children = null;
-          d._allChildren = null;
-        }
+        if (d._children || d._allChildren) expandNode(d);
       } else {
-        if (d.children && d.children.length > 0) {
-          d._children = d._allChildren || d.children;
-          d.children = null;
-          d._allChildren = null;
-          d._expandMode = null;
-        }
+        if (d.children && d.children.length > 0) collapseNode(d);
       }
     });
   }
@@ -1289,13 +1251,15 @@
       treeData = { name: "__root__", title: "", manager: "", children: roots };
     }
 
-    // Pre-compute manager info on tree data
     function annotate(node) {
       node._isManager = node.children.length > 0;
       node._mgrDepth = mgrDepth(node);
+      var directOpen = 0;
       for (var i = 0; i < node.children.length; i++) {
+        if (isOpenRole(node.children[i].name)) directOpen++;
         annotate(node.children[i]);
       }
+      node._directOpen = directOpen;
     }
     annotate(treeData);
 
@@ -1304,18 +1268,15 @@
 
     d3Root = d3.hierarchy(treeData);
 
-    // Assign stable IDs
     nodeIdCounter = 0;
-    d3Root.descendants().forEach(function (d) {
-      d.id = ++nodeIdCounter;
-    });
+    var allNodes = d3Root.descendants();
+    allNodes.forEach(function (d) { d.id = ++nodeIdCounter; });
 
     d3Root.x0 = 0;
     d3Root.y0 = 0;
 
-    // Apply collapse state
     if (wasCollapsed.size > 0) {
-      d3Root.descendants().forEach(function (d) {
+      allNodes.forEach(function (d) {
         if (d.children && d.children.length > 0 && wasCollapsed.has(d.data.name)) {
           d._children = d.children;
           d.children = null;
@@ -1323,10 +1284,8 @@
       });
     } else {
       // First load: apply default expansion
-      if (currentViewMode === "expand") {
-        // Leave everything expanded
-      } else if (currentViewMode === "managers") {
-        // Will be applied after updateChart
+      if (currentViewMode === "expand" || currentViewMode === "managers") {
+        // expand: leave expanded; managers: applied after updateChart
       } else if (currentViewMode === "collapse") {
         d3Root.descendants().forEach(function (d) {
           if (d.depth > 0 && d.children && d.children.length > 0) {
@@ -1339,10 +1298,12 @@
       }
     }
 
-    updateChart(d3Root);
+    var changes = getChanges();
+    updateChart(d3Root, changes);
     updateStatsBar(roots);
-    updateToolbarButtons();
-    updateLegend();
+    var changed = changes.size > 0;
+    updateToolbarButtons(changed);
+    updateLegend(changed);
 
     if (currentViewMode === "managers" && wasCollapsed.size === 0) {
       expandManagers();
@@ -1404,61 +1365,38 @@
 
   // ── Load CSV text ──
 
-  function loadCSVText(text, versionName) {
-    if (!text || text.trim() === "") {
-      showError("Please upload a CSV file");
-      return;
-    }
-
+  function parseAndValidate(text) {
+    if (!text || text.trim() === "") { showError("Please upload a CSV file"); return null; }
     var result = parseCSV(text);
+    if (result.error === "empty") { showError("Please upload a CSV file"); return null; }
+    if (result.error === "columns") { showError("CSV must contain columns: Name, Title, Manager"); return null; }
+    if (result.error === "no_data") { showError("No valid data found in CSV"); return null; }
+    return addMissingManagers(result.people);
+  }
 
-    if (result.error === "empty") {
-      showError("Please upload a CSV file");
-    } else if (result.error === "columns") {
-      showError("CSV must contain columns: Name, Title, Manager");
-    } else if (result.error === "no_data") {
-      showError("No valid data found in CSV");
-    } else {
-      var fullPeople = addMissingManagers(result.people);
-      var name = versionName || "upload-" + (versions.length + 1);
-      addVersion(name, fullPeople);
-    }
+  function loadCSVText(text, versionName) {
+    var people = parseAndValidate(text);
+    if (!people) return;
+    var name = versionName || "upload-" + (versions.length + 1);
+    addVersion(name, people);
   }
 
   function loadPlanCSVText(text) {
-    if (!text || text.trim() === "") {
-      showError("Please upload a CSV file");
-      return;
-    }
-
-    var result = parseCSV(text);
-
-    if (result.error === "empty") {
-      showError("Please upload a CSV file");
-    } else if (result.error === "columns") {
-      showError("CSV must contain columns: Name, Title, Manager");
-    } else if (result.error === "no_data") {
-      showError("No valid data found in CSV");
-    } else {
-      var planPeople = addMissingManagers(result.people);
-      var planNames = new Set(planPeople.map(function (p) { return p.name; }));
-
-      // People in original but not in plan are "removed"
-      var removed = originalPeople.filter(function (p) {
-        return !planNames.has(p.name);
-      }).map(function (p) {
-        return { name: p.name, title: p.title, manager: p.manager, _removed: true };
-      });
-
-      currentPeople = planPeople.map(function (p) {
-        return { name: p.name, title: p.title, manager: p.manager };
-      }).concat(removed);
-
-      selectedPerson = null;
-      currentViewMode = "default";
-      rebuildAndRender();
-      saveVersionsToStorage();
-    }
+    var planPeople = parseAndValidate(text);
+    if (!planPeople) return;
+    var planNames = new Set(planPeople.map(function (p) { return p.name; }));
+    var removed = originalPeople.filter(function (p) {
+      return !planNames.has(p.name);
+    }).map(function (p) {
+      var c = clonePerson(p);
+      c._removed = true;
+      return c;
+    });
+    currentPeople = planPeople.map(clonePerson).concat(removed);
+    selectedPerson = null;
+    currentViewMode = "default";
+    rebuildAndRender();
+    saveVersionsToStorage();
   }
 
   function addMissingManagers(people) {
@@ -1487,47 +1425,26 @@
     fileInput.click();
   });
 
-  fileInput.addEventListener("change", function () {
-    const file = fileInput.files[0];
+  function readCSVFile(inputEl, loadFn) {
+    var file = inputEl.files[0];
     if (!file) return;
-
     if (!file.name.toLowerCase().endsWith(".csv")) {
       showError("Please upload a CSV file");
-      fileInput.value = "";
+      inputEl.value = "";
       return;
     }
-
-    const reader = new FileReader();
-    reader.onload = function (e) {
-      loadCSVText(e.target.result, deriveVersionName(file.name));
-      fileInput.value = "";
-    };
-
-    reader.readAsText(file);
-  });
-
-  planBtn.addEventListener("click", function () {
-    planFileInput.click();
-  });
-
-  planFileInput.addEventListener("change", function () {
-    var file = planFileInput.files[0];
-    if (!file) return;
-
-    if (!file.name.toLowerCase().endsWith(".csv")) {
-      showError("Please upload a CSV file");
-      planFileInput.value = "";
-      return;
-    }
-
     var reader = new FileReader();
-    reader.onload = function (e) {
-      loadPlanCSVText(e.target.result);
-      planFileInput.value = "";
-    };
-
+    reader.onload = function (e) { loadFn(e.target.result, file.name); inputEl.value = ""; };
     reader.readAsText(file);
+  }
+
+  fileInput.addEventListener("change", function () {
+    readCSVFile(fileInput, function (text, fileName) { loadCSVText(text, deriveVersionName(fileName)); });
   });
+
+  planBtn.addEventListener("click", function () { planFileInput.click(); });
+
+  planFileInput.addEventListener("change", function () { readCSVFile(planFileInput, loadPlanCSVText); });
 
   var params = new URLSearchParams(window.location.search);
   var autoFile = params.get("file");
@@ -1538,31 +1455,22 @@
   collapseBtn.addEventListener("click", function () { currentViewMode = "collapse"; collapseAll(); });
 
   panelCloseBtn.addEventListener("click", function () {
-    if (panelHasUnsavedChanges()) {
-      if (!confirm("You have unsaved changes. Discard them?")) return;
-    }
+    if (!confirmDiscard()) return;
     closePanel();
   });
 
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape") {
-      if (!ldapModal.hidden) {
-        closeLdapModal();
-        return;
-      }
+      if (!ldapModal.hidden) { closeLdapModal(); return; }
       if (selectedPerson) {
-        if (panelHasUnsavedChanges()) {
-          if (!confirm("You have unsaved changes. Discard them?")) return;
-        }
+        if (!confirmDiscard()) return;
         closePanel();
       }
     }
   });
 
   panelCancelBtn.addEventListener("click", function () {
-    if (panelHasUnsavedChanges()) {
-      if (!confirm("You have unsaved changes. Discard them?")) return;
-    }
+    if (!confirmDiscard()) return;
     closePanel();
   });
 
@@ -1572,16 +1480,11 @@
     var newTitle = panelTitle.value.trim();
     var newManager = panelManager.value;
 
-    currentPeople = currentPeople.map(function (p) {
-      if (p.name === selectedPerson) {
-        var updated = { name: p.name, title: newTitle, manager: newManager };
-        if (p._removed) updated._removed = true;
-        return updated;
-      }
-      var copy = { name: p.name, title: p.title, manager: p.manager };
-      if (p._removed) copy._removed = true;
-      return copy;
-    });
+    var person = currentPeople.find(function (p) { return p.name === selectedPerson; });
+    if (person) {
+      person.title = newTitle;
+      person.manager = newManager;
+    }
 
     var savedName = selectedPerson;
     rebuildAndRender();
@@ -1613,9 +1516,7 @@
   resetBtn.addEventListener("click", function () {
     if (!confirm("Discard all changes?")) return;
 
-    currentPeople = originalPeople.map(function (p) {
-      return { name: p.name, title: p.title, manager: p.manager };
-    });
+    currentPeople = originalPeople.map(clonePerson);
     selectedPerson = null;
     closePanel();
     currentViewMode = "default";

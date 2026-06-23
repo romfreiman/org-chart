@@ -32,6 +32,7 @@ Carol,Senior Engineer,Bob
 - **Managers Only** — show only the management chain (hide ICs)
 - **Collapse All** — collapse everything
 - **Show: Collaborative Partners / Interns** — optional checkboxes to include these roles (hidden by default)
+- **Top Down / Left-Right** — switch between vertical and horizontal tree layout
 
 ### Auto-Load from URL
 

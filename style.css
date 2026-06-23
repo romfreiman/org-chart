@@ -303,6 +303,12 @@ header h1 {
   color: #fff;
 }
 
+.layout-select {
+  appearance: auto;
+  cursor: pointer;
+  padding-right: 8px;
+}
+
 .btn-save {
   background: #38a169;
   color: #fff;

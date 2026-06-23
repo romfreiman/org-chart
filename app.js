@@ -7,7 +7,7 @@
   var expandBtn = document.getElementById("expand-btn");
   var mgmtBtn = document.getElementById("mgmt-btn");
   var collapseBtn = document.getElementById("collapse-btn");
-  var layoutBtn = document.getElementById("layout-btn");
+  var layoutSelect = document.getElementById("layout-select");
   var searchInput = document.getElementById("search");
 
   var editPanel = document.getElementById("edit-panel");
@@ -749,9 +749,6 @@
       : "translate(" + d.y + "," + d.x + ")";
   }
 
-  function updateLayoutButton() {
-    layoutBtn.textContent = isVerticalLayout() ? "Left-Right" : "Top Down";
-  }
 
   // ── D3 Initialization ──
 
@@ -1555,16 +1552,13 @@
   mgmtBtn.addEventListener("click", function () { currentViewMode = "managers"; expandManagers(); });
   collapseBtn.addEventListener("click", function () { currentViewMode = "collapse"; collapseAll(); });
 
-  layoutBtn.addEventListener("click", function () {
-    layoutOrientation = isVerticalLayout() ? "horizontal" : "vertical";
-    updateLayoutButton();
+  layoutSelect.addEventListener("change", function () {
+    layoutOrientation = layoutSelect.value;
     if (d3Root) {
       updateChart(d3Root);
       setTimeout(fitToView, 450);
     }
   });
-
-  updateLayoutButton();
 
   panelCloseBtn.addEventListener("click", function () {
     if (!confirmDiscard()) return;

@@ -340,6 +340,13 @@
     return result;
   }
 
+  function byManagerThenFirstName(a, b) {
+    var aIsMgr = a.children && a.children.length > 0 ? 0 : 1;
+    var bIsMgr = b.children && b.children.length > 0 ? 0 : 1;
+    if (aIsMgr !== bIsMgr) return aIsMgr - bIsMgr;
+    return a.name.split(" ")[0].localeCompare(b.name.split(" ")[0]);
+  }
+
   function getAncestorChain(name) {
     var chain = [name];
     var current = name;
@@ -403,7 +410,12 @@
     panelManager.value = person.manager;
 
     panelReports.innerHTML = "";
-    var reports = currentPeople.filter(function (p) { return p.manager === name; });
+    var reports = currentPeople.filter(function (p) { return p.manager === name; }).sort(function (a, b) {
+      var aIsMgr = currentPeople.some(function (p) { return p.manager === a.name; }) ? 0 : 1;
+      var bIsMgr = currentPeople.some(function (p) { return p.manager === b.name; }) ? 0 : 1;
+      if (aIsMgr !== bIsMgr) return aIsMgr - bIsMgr;
+      return a.name.split(" ")[0].localeCompare(b.name.split(" ")[0]);
+    });
     for (var j = 0; j < reports.length; j++) {
       var li = document.createElement("li");
       li.textContent = reports[j].name + " — " + reports[j].title;
@@ -603,6 +615,11 @@
         roots.push(node);
       }
     }
+
+    for (const node of map.values()) {
+      node.children.sort(byManagerThenFirstName);
+    }
+    roots.sort(byManagerThenFirstName);
 
     return roots;
   }

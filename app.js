@@ -1241,8 +1241,12 @@
 
   function expandManagers() {
     if (!d3Root) return;
+    // Root is included here (no depth > 0 guard) so its own direct reports
+    // get collapsed via the same _allChildren-preferring logic as every
+    // other node — special-casing it previously dropped non-manager top
+    // level reports from _allChildren on repeated presses.
     walkAll(d3Root, function (d) {
-      if (d.depth > 0 && (d.children || d._allChildren)) collapseNode(d);
+      if (d.children || d._allChildren) collapseNode(d);
     });
 
     function expandMgrs(d) {
@@ -1257,13 +1261,6 @@
       for (var i = 0; i < d.children.length; i++) expandMgrs(d.children[i]);
     }
 
-    // Root itself is skipped by the collapse pass above (depth === 0), so its
-    // own children (the top org's direct reports) were never filtered.
-    // Move them into _children so expandMgrs can filter them like any other node.
-    if (d3Root.children) {
-      d3Root._children = d3Root.children;
-      d3Root.children = null;
-    }
     expandMgrs(d3Root);
 
     updateChart(d3Root);

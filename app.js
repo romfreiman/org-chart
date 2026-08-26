@@ -19,6 +19,7 @@
   var panelSaveBtn = document.getElementById("panel-save-btn");
   var panelCancelBtn = document.getElementById("panel-cancel-btn");
   var saveCsvBtn = document.getElementById("save-csv-btn");
+  var exportBtn = document.getElementById("export-btn");
   var resetBtn = document.getElementById("reset-btn");
   var legendEl = document.getElementById("change-legend");
   var statsBar = document.getElementById("stats-bar");
@@ -35,6 +36,19 @@
   var includeInternsCheck = document.getElementById("include-interns");
   var tooltipEl = document.getElementById("tooltip");
   var emptyState = chartEl.querySelector(".empty-state");
+  var depthLegend = document.getElementById("depth-legend");
+  var changeLegendSection = document.getElementById("change-legend-section");
+
+  var level1Btn = document.getElementById("level1-btn");
+  var level2Btn = document.getElementById("level2-btn");
+  var level3Btn = document.getElementById("level3-btn");
+  var spotlightBtn = document.getElementById("spotlight-btn");
+  var changelogTab = document.getElementById("changelog-tab");
+  var changelogSidebar = document.getElementById("changelog-sidebar");
+  var changelogClose = document.getElementById("changelog-close");
+  var changelogCount = document.getElementById("changelog-count");
+  var changelogSummary = document.getElementById("changelog-summary");
+  var changelogContent = document.getElementById("changelog-content");
 
   var planBtn = document.getElementById("plan-btn");
   var planFileInput = document.getElementById("plan-file-input");
@@ -51,6 +65,7 @@
   let currentPeople = [];
   let selectedPerson = null;
   var currentViewMode = "default";
+  var spotlightMode = false;
   var includeCollaborativePartners = false;
   var includeInterns = false;
   var layoutOrientation = "horizontal";
@@ -119,6 +134,7 @@
   }
 
   function saveVersionsToStorage() {
+    if (window.__EXPORT_DATA__) return;
     if (activeVersionIndex >= 0 && activeVersionIndex < versions.length) {
       versions[activeVersionIndex].currentPeople = currentPeople;
     }
@@ -217,6 +233,12 @@
       if (g) g.selectAll("*").remove();
       statsBar.hidden = true;
       filterBar.hidden = true;
+      legendEl.hidden = true;
+      exportBtn.hidden = true;
+      changelogTab.hidden = true;
+      spotlightBtn.hidden = true;
+      depthLegend.hidden = true;
+      changelogSidebar.classList.remove("visible");
       emptyState.style.display = "";
       emptyState.className = "empty-state";
       emptyState.textContent = "Upload a CSV to get started";
@@ -375,6 +397,7 @@
     var person = currentPeople.find(function (p) { return p.name === name; });
     if (!person) return;
 
+    changelogSidebar.classList.remove("visible");
     selectedPerson = name;
 
     panelName.textContent = person.name;
@@ -465,10 +488,131 @@
     saveCsvBtn.hidden = !changed;
     resetBtn.hidden = !changed;
     planBtn.hidden = originalPeople.length === 0;
+    exportBtn.hidden = currentPeople.length === 0;
   }
 
   function updateLegend(changed) {
     legendEl.hidden = !changed;
+    depthLegend.hidden = currentPeople.length === 0;
+    changeLegendSection.hidden = !changed;
+  }
+
+  function updateLegendPosition() {
+    var top = 56;
+    if (!statsBar.hidden) top += 32;
+    if (!filterBar.hidden) top += 28;
+    legendEl.style.top = (top + 6) + "px";
+  }
+
+  // ── Changelog Sidebar ──
+
+  function buildChangelog() {
+    var changes = getChanges();
+    if (changes.size === 0) {
+      changelogTab.hidden = true;
+      spotlightBtn.hidden = true;
+      if (spotlightMode) { spotlightMode = false; spotlightBtn.classList.remove("active"); }
+      return;
+    }
+    changelogTab.hidden = false;
+    spotlightBtn.hidden = false;
+    changelogCount.textContent = changes.size;
+
+    var moved = 0, edited = 0, added = 0, removed = 0;
+    changes.forEach(function(c) {
+      if (c.removed) removed++;
+      else if (c.added) added++;
+      else { if (c.moved) moved++; if (c.edited) edited++; }
+    });
+
+    var s = "";
+    if (moved) s += '<span style="color:#ed8936">● ' + moved + ' Moved</span>';
+    if (edited) s += '<span style="color:#b794f4">● ' + edited + ' Edited</span>';
+    if (added) s += '<span style="color:#68d391">● ' + added + ' Added</span>';
+    if (removed) s += '<span style="color:#fc8181">● ' + removed + ' Removed</span>';
+    changelogSummary.innerHTML = s;
+
+    var groups = new Map();
+    changes.forEach(function(change, name) {
+      var person = currentPeople.find(function(p) { return p.name === name; });
+      var mgr = person ? (person.manager || "(top level)") : "(removed)";
+      if (change.removed) mgr = "(removed)";
+      if (!groups.has(mgr)) groups.set(mgr, []);
+      groups.get(mgr).push({ name: name, change: change });
+    });
+
+    var html = "";
+    groups.forEach(function(entries, mgrName) {
+      html += '<div class="changelog-group-header">' + mgrName + ' (' + entries.length + ')</div>';
+      entries.sort(function(a, b) { return a.name.localeCompare(b.name); });
+      for (var i = 0; i < entries.length; i++) {
+        var e = entries[i];
+        var color = "#ed8936", detail = "";
+        if (e.change.removed) { color = "#fc8181"; detail = "removed"; }
+        else if (e.change.added) { color = "#68d391"; detail = "added"; }
+        else if (e.change.moved && e.change.edited) { detail = "from " + (e.change.originalManager || "none") + " + title changed"; }
+        else if (e.change.moved) { detail = "from " + (e.change.originalManager || "none"); }
+        else if (e.change.edited) { color = "#b794f4"; detail = "title changed"; }
+        html += '<div class="changelog-entry" data-name="' + e.name.replace(/"/g, '&quot;') + '"' +
+          (e.change.removed ? '' : ' data-navigable="1"') + '>' +
+          '<span class="changelog-dot" style="background:' + color + '"></span>' +
+          '<span class="changelog-name">' + e.name + '</span>' +
+          '<span class="changelog-detail">' + detail + '</span></div>';
+      }
+    });
+    changelogContent.innerHTML = html;
+  }
+
+  function toggleChangelog() {
+    var open = changelogSidebar.classList.toggle("visible");
+    if (open && selectedPerson) {
+      if (!confirmDiscard()) { changelogSidebar.classList.remove("visible"); return; }
+      closePanel();
+    }
+  }
+
+  function navigateToNode(name) {
+    if (!d3Root) return;
+    var target = null;
+    walkAll(d3Root, function(d) {
+      if (d.data && d.data.name === name) target = d;
+    });
+    if (!target) return;
+    var p = target.parent;
+    while (p) {
+      if (p._children || p._allChildren) expandNode(p);
+      p = p.parent;
+    }
+    updateChart(d3Root);
+    applySpotlight();
+    setTimeout(function() {
+      var svgEl = document.getElementById("tree-svg");
+      var w = svgEl.clientWidth, h = svgEl.clientHeight;
+      var tx, ty;
+      if (isVerticalLayout()) { tx = w / 2 - target.x; ty = h / 3 - target.y; }
+      else { tx = w / 3 - target.y; ty = h / 2 - target.x; }
+      svg.transition().duration(500)
+        .call(zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(1));
+      d3.selectAll(".node-group").classed("node-highlight", function(d) {
+        return d.data.name === name;
+      });
+      setTimeout(function() {
+        d3.selectAll(".node-group").classed("node-highlight", false);
+      }, 2500);
+    }, 450);
+  }
+
+  // ── Spotlight ──
+
+  function applySpotlight() {
+    if (!d3Root) return;
+    var changes = getChanges();
+    d3.selectAll(".node-group").classed("node-dimmed", function(d) {
+      return spotlightMode && !changes.has(d.data.name);
+    });
+    d3.selectAll("path.link").classed("link-dimmed", function() {
+      return spotlightMode;
+    });
   }
 
   // ── CSV Parsing ──
@@ -753,7 +897,8 @@
   }
 
   function getTreeNodeSize() {
-    return isVerticalLayout() ? [rectW + 40, rectH + 70] : [48, 240];
+    var extra = hasChanges() ? 14 : 0;
+    return isVerticalLayout() ? [rectW + 40, rectH + 70 + extra] : [48 + extra, 240];
   }
 
   function linkPath(s, t) {
@@ -902,10 +1047,19 @@
       .attr("dy", rectH / 2 - 3)
       .attr("text-anchor", "end");
 
-    // "Was under" text for moved nodes (above card)
+    // Change accent bar (left edge of card)
+    nodeEnter.append("rect")
+      .attr("class", "change-accent");
+
+    // Change badge rect + text (bottom-left of card)
+    nodeEnter.append("rect")
+      .attr("class", "change-badge-rect");
     nodeEnter.append("text")
-      .attr("class", "node-was-under")
-      .attr("dy", -rectH / 2 - 4)
+      .attr("class", "change-badge-text");
+
+    // Change note text (inside card, below title)
+    nodeEnter.append("text")
+      .attr("class", "change-note")
       .attr("text-anchor", "middle");
 
     // Info icon circle
@@ -1103,22 +1257,48 @@
         return "";
       });
 
-    // Was-under text
-    nodeUpdate.select(".node-was-under")
-      .text(function (d) {
-        var change = changes.get(d.data.name);
-        if (!change) return "";
-        if (change.removed) return "← removed";
-        if (change.added) return "← new";
-        if (change.moved) return "← was under " + (change.originalManager || "no one");
-        return "";
-      })
-      .attr("fill", function (d) {
-        var change = changes.get(d.data.name);
-        if (change && change.removed) return "#fc8181";
-        if (change && change.added) return "#38a169";
-        return "#dd6b20";
-      });
+    // Change indicators above the card (no card resize needed)
+    nodeUpdate.each(function (d) {
+      var el = d3.select(this);
+      var change = changes.get(d.data.name);
+
+      var color = "transparent";
+      var badge = "";
+      var note = "";
+      if (change) {
+        if (change.removed) { color = "#fc8181"; badge = "R"; note = "removed"; }
+        else if (change.added) { color = "#38a169"; badge = "A"; note = "added"; }
+        else if (change.moved && change.edited) { color = "#dd6b20"; badge = "M+E"; note = "from " + (change.originalManager || "none") + " + title changed"; }
+        else if (change.moved) { color = "#dd6b20"; badge = "M"; note = "from " + (change.originalManager || "none"); }
+        else if (change.edited) { color = "#805ad5"; badge = "E"; note = "title changed"; }
+      }
+
+      // Accent bar on left edge of card
+      el.select(".change-accent")
+        .attr("x", -rectW / 2).attr("y", -rectH / 2)
+        .attr("width", change ? 4 : 0).attr("height", rectH).attr("rx", 2)
+        .attr("fill", color);
+
+      // Badge pill — above the card
+      var aboveY = -rectH / 2 - 15;
+      var bw = badge.length > 1 ? 26 : 18;
+      el.select(".change-badge-rect")
+        .attr("x", -rectW / 2).attr("y", aboveY)
+        .attr("width", badge ? bw : 0).attr("height", 13).attr("rx", 3)
+        .attr("fill", color);
+      el.select(".change-badge-text")
+        .attr("x", -rectW / 2 + bw / 2).attr("y", aboveY + 10)
+        .attr("text-anchor", "middle")
+        .text(badge);
+
+      // Change note — above the card, next to badge
+      el.select(".change-note")
+        .attr("x", badge ? -rectW / 2 + bw + 4 : 0)
+        .attr("dy", 0).attr("y", aboveY + 10)
+        .attr("text-anchor", badge ? "start" : "middle")
+        .attr("fill", color)
+        .text(note);
+    });
 
     // ── Exit selection ──
     node.exit().transition(transition)
@@ -1413,6 +1593,9 @@
     var changed = changes.size > 0;
     updateToolbarButtons(changed);
     updateLegend(changed);
+    updateLegendPosition();
+    buildChangelog();
+    applySpotlight();
 
     if (currentViewMode === "managers" && wasCollapsed.size === 0) {
       expandManagers();
@@ -1567,6 +1750,23 @@
   mgmtBtn.addEventListener("click", function () { currentViewMode = "managers"; expandManagers(); });
   collapseBtn.addEventListener("click", function () { currentViewMode = "collapse"; collapseAll(); });
 
+  level1Btn.addEventListener("click", function () { currentViewMode = "default"; expandToDepth(1); updateChart(d3Root); applySpotlight(); setTimeout(fitToView, 450); });
+  level2Btn.addEventListener("click", function () { currentViewMode = "default"; expandToDepth(2); updateChart(d3Root); applySpotlight(); setTimeout(fitToView, 450); });
+  level3Btn.addEventListener("click", function () { currentViewMode = "default"; expandToDepth(3); updateChart(d3Root); applySpotlight(); setTimeout(fitToView, 450); });
+
+  spotlightBtn.addEventListener("click", function () {
+    spotlightMode = !spotlightMode;
+    spotlightBtn.classList.toggle("active", spotlightMode);
+    applySpotlight();
+  });
+
+  changelogTab.addEventListener("click", toggleChangelog);
+  changelogClose.addEventListener("click", toggleChangelog);
+  changelogContent.addEventListener("click", function (e) {
+    var entry = e.target.closest(".changelog-entry");
+    if (entry && entry.dataset.navigable) navigateToNode(entry.dataset.name);
+  });
+
   layoutSelect.addEventListener("change", function () {
     layoutOrientation = layoutSelect.value;
     if (d3Root) {
@@ -1583,6 +1783,7 @@
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape") {
       if (!ldapModal.hidden) { closeLdapModal(); return; }
+      if (changelogSidebar.classList.contains("visible")) { toggleChangelog(); return; }
       if (selectedPerson) {
         if (!confirmDiscard()) return;
         closePanel();
@@ -1644,6 +1845,80 @@
     rebuildAndRender();
     saveVersionsToStorage();
   });
+
+  // ── Export Static HTML ──
+
+  function exportStaticHTML() {
+    fetch('app.js').then(function (r) { return r.text(); }).then(function (appJS) {
+      var css = "";
+      for (var i = 0; i < document.styleSheets.length; i++) {
+        try {
+          var rules = document.styleSheets[i].cssRules;
+          if (!rules) continue;
+          for (var j = 0; j < rules.length; j++) css += rules[j].cssText + "\n";
+        } catch (e) { /* cross-origin */ }
+      }
+
+      var title = "Org Chart";
+      if (activeVersionIndex >= 0 && versions[activeVersionIndex]) {
+        title = versions[activeVersionIndex].name;
+      }
+      var safeTitle = title.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+      var bodyClone = document.body.cloneNode(true);
+      bodyClone.classList.remove("panel-open");
+      var cloneSvg = bodyClone.querySelector("#tree-svg");
+      if (cloneSvg) cloneSvg.innerHTML = "";
+      var scripts = bodyClone.querySelectorAll("script");
+      for (var i = 0; i < scripts.length; i++) scripts[i].parentNode.removeChild(scripts[i]);
+      var clonePanel = bodyClone.querySelector("#edit-panel");
+      if (clonePanel) { clonePanel.setAttribute("hidden", ""); clonePanel.classList.remove("visible"); }
+      var cloneLdap = bodyClone.querySelector("#ldap-modal");
+      if (cloneLdap) cloneLdap.setAttribute("hidden", "");
+      var clonePartners = bodyClone.querySelector("#include-partners");
+      if (clonePartners) clonePartners.checked = includeCollaborativePartners;
+      var cloneInterns = bodyClone.querySelector("#include-interns");
+      if (cloneInterns) cloneInterns.checked = includeInterns;
+
+      var hiddenCSS = '#upload-btn, #ldap-btn, #plan-btn, #save-csv-btn, #reset-btn, #export-btn,\n' +
+        '#file-input, #plan-file-input, #version-group { display: none !important; }\n' +
+        '.node-info-circle, .node-info-text { display: none; }\n';
+
+      var dataScript = '<script>\nwindow.__EXPORT_DATA__ = ' +
+        JSON.stringify({
+          originalPeople: originalPeople,
+          currentPeople: currentPeople,
+          layout: layoutOrientation,
+          includePartners: includeCollaborativePartners,
+          includeInterns: includeInterns
+        }) + ';\n</' + 'script>';
+
+      var html = '<!DOCTYPE html>\n<html lang="en">\n<head>\n' +
+        '<meta charset="UTF-8">\n' +
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+        '<title>' + safeTitle + '</title>\n' +
+        '<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">\n' +
+        '<script src="https://cdn.jsdelivr.net/npm/d3@7"></' + 'script>\n' +
+        '<style>\n' + css + '\n' + hiddenCSS + '</style>\n' +
+        '</head>\n<body>\n' +
+        bodyClone.innerHTML + '\n' +
+        dataScript + '\n' +
+        '<script>\n' + appJS + '\n</' + 'script>\n' +
+        '</body>\n</html>';
+
+      var blob = new Blob([html], { type: "text/html;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = title.replace(/[^a-zA-Z0-9_-]/g, "-") + "-org-chart.html";
+      a.click();
+      URL.revokeObjectURL(url);
+    }).catch(function () {
+      alert("Could not read app.js for export");
+    });
+  }
+
+  exportBtn.addEventListener("click", exportStaticHTML);
 
   // ── LDAP Import ──
 
@@ -1753,24 +2028,36 @@
   // ── Initialize ──
   initD3();
 
-  loadVersionsFromStorage();
-
-  if (autoFile) {
-    fetch(autoFile)
-      .then(function (r) { return r.text(); })
-      .then(function (text) {
-        loadCSVText(text, deriveVersionName(autoFile));
-        if (autoPlan) {
-          return fetch(autoPlan)
-            .then(function (r) { return r.text(); })
-            .then(loadPlanCSVText)
-            .catch(function () { showError("Could not load plan: " + autoPlan); });
-        }
-      })
-      .catch(function () { showError("Could not load " + autoFile); });
-  } else if (versions.length > 0) {
-    updateVersionDropdown();
+  if (window.__EXPORT_DATA__) {
+    originalPeople = window.__EXPORT_DATA__.originalPeople;
+    currentPeople = window.__EXPORT_DATA__.currentPeople;
+    layoutOrientation = window.__EXPORT_DATA__.layout || "horizontal";
+    layoutSelect.value = layoutOrientation;
+    includeCollaborativePartners = window.__EXPORT_DATA__.includePartners || false;
+    includeInterns = window.__EXPORT_DATA__.includeInterns || false;
+    includePartnersCheck.checked = includeCollaborativePartners;
+    includeInternsCheck.checked = includeInterns;
     rebuildAndRender();
+  } else {
+    loadVersionsFromStorage();
+
+    if (autoFile) {
+      fetch(autoFile)
+        .then(function (r) { return r.text(); })
+        .then(function (text) {
+          loadCSVText(text, deriveVersionName(autoFile));
+          if (autoPlan) {
+            return fetch(autoPlan)
+              .then(function (r) { return r.text(); })
+              .then(loadPlanCSVText)
+              .catch(function () { showError("Could not load plan: " + autoPlan); });
+          }
+        })
+        .catch(function () { showError("Could not load " + autoFile); });
+    } else if (versions.length > 0) {
+      updateVersionDropdown();
+      rebuildAndRender();
+    }
   }
 
 })();

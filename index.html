@@ -26,13 +26,18 @@
       <button id="ldap-btn" class="btn btn-ldap">Import LDAP</button>
       <input type="file" id="plan-file-input" accept=".csv" hidden>
       <button id="plan-btn" class="btn btn-plan" hidden>Load Plan</button>
+      <button id="level1-btn" class="btn btn-action btn-sm">L1</button>
+      <button id="level2-btn" class="btn btn-action btn-sm">L2</button>
+      <button id="level3-btn" class="btn btn-action btn-sm">L3</button>
       <button id="expand-btn" class="btn btn-action">Expand All</button>
       <button id="mgmt-btn" class="btn btn-action">Managers Only</button>
       <button id="collapse-btn" class="btn btn-action">Collapse All</button>
+      <button id="spotlight-btn" class="btn btn-action" hidden>Spotlight</button>
       <select id="layout-select" class="btn btn-action layout-select">
         <option value="horizontal">Layout: Left-Right</option>
         <option value="vertical">Layout: Top-Down</option>
       </select>
+      <button id="export-btn" class="btn btn-action" hidden>Export HTML</button>
       <button id="save-csv-btn" class="btn btn-save" hidden>Save CSV</button>
       <button id="reset-btn" class="btn btn-reset" hidden>Reset</button>
     </div>
@@ -65,6 +70,22 @@
       <span class="legend-item legend-both">Moved + Edited</span>
       <span class="legend-item legend-added">Added</span>
       <span class="legend-item legend-removed">Removed</span>
+    </div>
+    <div id="depth-legend" class="depth-legend" hidden>
+      <div class="dl-item"><span class="dl-dot" style="background:var(--l0)"></span>Level 0</div>
+      <div class="dl-item"><span class="dl-dot" style="background:var(--l1)"></span>Level 1</div>
+      <div class="dl-item"><span class="dl-dot" style="background:var(--l2)"></span>Level 2</div>
+      <div class="dl-item"><span class="dl-dot" style="background:var(--l3)"></span>Level 3</div>
+      <div class="dl-item"><span class="dl-dot" style="background:var(--l4)"></span>Level 4</div>
+      <div class="dl-item"><span class="dl-dot" style="background:var(--l5)"></span>Level 5</div>
+      <div id="change-legend-section" class="dl-divider" hidden>
+        <div class="dl-header">Planned Changes</div>
+        <div class="dl-item"><span class="dl-bar" style="border-color:#dd6b20;background:rgba(221,107,32,0.15)"></span><strong>M</strong> — Moved</div>
+        <div class="dl-item"><span class="dl-bar" style="border-color:#805ad5;background:rgba(128,90,213,0.15)"></span><strong>E</strong> — Edited</div>
+        <div class="dl-item"><span class="dl-bar" style="border-color:#dd6b20;background:rgba(128,90,213,0.15)"></span><strong>M+E</strong> — Moved + Edited</div>
+        <div class="dl-item"><span class="dl-bar" style="border-color:#38a169;background:rgba(56,161,105,0.15)"></span><strong>A</strong> — Added</div>
+        <div class="dl-item"><span class="dl-bar" style="border-color:#fc8181;background:rgba(252,129,129,0.15)"></span><strong>R</strong> — Removed</div>
+      </div>
     </div>
     <p class="empty-state">Upload a CSV to get started</p>
     <svg id="tree-svg"></svg>
@@ -121,6 +142,15 @@
       <button id="panel-save-btn" class="btn btn-panel-save">Save</button>
       <button id="panel-cancel-btn" class="btn btn-panel-cancel">Cancel</button>
     </div>
+  </aside>
+  <button id="changelog-tab" class="changelog-tab" hidden>Changes <span id="changelog-count" class="tab-count">0</span></button>
+  <aside id="changelog-sidebar" class="changelog-sidebar">
+    <div class="panel-header">
+      <h2>Changes</h2>
+      <button id="changelog-close" class="panel-close" aria-label="Close">&times;</button>
+    </div>
+    <div id="changelog-summary" class="changelog-summary"></div>
+    <div id="changelog-content" class="changelog-content"></div>
   </aside>
   <script src="app.js" defer></script>
 </body>
